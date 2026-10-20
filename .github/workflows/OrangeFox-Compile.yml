@@ -103,8 +103,27 @@ jobs:
         sed -i 's/return sandboxConfig\.working/return false/g' build/soong/ui/build/sandbox_linux.go
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
+        echo "== release configs disponiveis =="
+        ls build/release/release_configs 2>/dev/null
+        ls build/make/release 2>/dev/null
+        LUNCH_OK=0
+        if [ "${{ github.event.inputs.MANIFEST_BRANCH }}" = "14.1" ]; then
+          for REL in ap2a ap1a ap3a ap4a trunk_staging; do
+            echo "== tentando lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-$REL-eng =="
+            if lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-$REL-eng; then
+              LUNCH_OK=1
+              break
+            fi
+          done
+        else
+          lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng && LUNCH_OK=1
+        fi
+        if [ "$LUNCH_OK" != "1" ]; then
+          echo "ERRO: nenhum lunch combo funcionou"
+          exit 1
+        fi
         set -e
-        lunch twrp_${{ github.event.inputs.DEVICE_NAME }}-eng && make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image
+        make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image
 
     - name: Set Release Properties
       run: |
