@@ -12,7 +12,7 @@ on:
       MANIFEST_BRANCH:
         description: 'OrangeFox Manifest Branch'
         required: true
-        default: '12.1'
+        default: '14.1'
         type: choice
         options:
         - 14.1
@@ -55,7 +55,7 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-              
+
     - name: Clean-up
       uses: rokibhasansagar/slimhub_actions@main
 
@@ -63,7 +63,7 @@ jobs:
       uses: pierotofy/set-swap-space@master
       with:
         swap-size-gb: 12
-      
+
     - name: Build Environment
       run: |
         sudo apt install aria2 -y
@@ -75,9 +75,9 @@ jobs:
       uses: hendrikmuhs/ccache-action@v1.2
       with:
         max-size: "10G"
-      
+
     - name: Set-up Manifest
-            if: github.event.inputs.MANIFEST_BRANCH == '11.0' || github.event.inputs.MANIFEST_BRANCH == '12.1' || github.event.inputs.MANIFEST_BRANCH == '14.1'
+      if: github.event.inputs.MANIFEST_BRANCH == '11.0' || github.event.inputs.MANIFEST_BRANCH == '12.1' || github.event.inputs.MANIFEST_BRANCH == '14.1'
       run: |
         mkdir -p ${GITHUB_WORKSPACE}/OrangeFox
         cd ${GITHUB_WORKSPACE}/OrangeFox
