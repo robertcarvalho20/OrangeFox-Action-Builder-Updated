@@ -115,7 +115,6 @@ jobs:
         grep -q 'OF_DEFAULT_KEYMASTER_VERSION' BoardConfig.mk || echo 'OF_DEFAULT_KEYMASTER_VERSION := 4.0' >> BoardConfig.mk
 
     - name: Fix fstab encryption flags
-      if: github.event.inputs.MANIFEST_BRANCH == '14.1'
       run: |
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}
         echo "== ANTES =="
