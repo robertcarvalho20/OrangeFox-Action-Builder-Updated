@@ -85,7 +85,16 @@ jobs:
         git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
         git clone https://gitlab.com/OrangeFox/sync.git -b master
         cd sync
-        ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+                ok=0
+        for i in 1 2 3 4 5; do
+          echo "== Sync, tentativa $i de 5 =="
+          if ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}; then
+            ok=1
+            break
+          fi
+          sleep 90
+        done
+        [ "$ok" = "1" ] || exit 1
 
     - name: Clone Device Tree
       run: |
