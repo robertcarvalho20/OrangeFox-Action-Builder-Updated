@@ -111,6 +111,7 @@ jobs:
         cd ${{ github.event.inputs.DEVICE_PATH }}
         sed -i '/BOARD_BUILD_SYSTEM_ROOT_IMAGE/d' BoardConfig.mk
         sed -i '/TARGET_USES_64_BIT_BINDER/d' BoardConfig.mk
+        echo "" >> BoardConfig.mk
         grep -q 'OF_DEFAULT_KEYMASTER_VERSION' BoardConfig.mk || echo 'OF_DEFAULT_KEYMASTER_VERSION := 4.0' >> BoardConfig.mk
     
     - name: Building OrangeFox
