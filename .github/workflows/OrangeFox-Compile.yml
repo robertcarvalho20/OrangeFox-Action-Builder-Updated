@@ -102,7 +102,13 @@ jobs:
         git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
         cd ${{ github.event.inputs.DEVICE_PATH }}
         echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
-
+  
+    - name: Set keymaster version
+      run: |
+        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}
+        echo "" >> BoardConfig.mk
+        grep -q 'OF_DEFAULT_KEYMASTER_VERSION' BoardConfig.mk || echo 'OF_DEFAULT_KEYMASTER_VERSION := 4.0' >> BoardConfig.mk
+        
     - name: Fix BoardConfig for Android 14
       if: github.event.inputs.MANIFEST_BRANCH == '14.1'
       run: |
