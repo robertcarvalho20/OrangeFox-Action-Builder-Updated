@@ -113,6 +113,22 @@ jobs:
         sed -i '/TARGET_USES_64_BIT_BINDER/d' BoardConfig.mk
         echo "" >> BoardConfig.mk
         grep -q 'OF_DEFAULT_KEYMASTER_VERSION' BoardConfig.mk || echo 'OF_DEFAULT_KEYMASTER_VERSION := 4.0' >> BoardConfig.mk
+
+    - name: Fix fstab encryption flags
+      if: github.event.inputs.MANIFEST_BRANCH == '14.1'
+      run: |
+        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}
+        echo "== ANTES =="
+        grep -rnE 'wrappedkey|inlinecrypt|fileencryption' --include='*fstab*' --include='*.flags' . || true
+        for f in $(grep -rlE 'wrappedkey|inlinecrypt|fileencryption=ice' --include='*fstab*' --include='*.flags' . || true); do
+          sed -i -e 's/fileencryption=ice,wrappedkey/fileencryption=aes-256-xts:aes-256-cts:v2,metadata_encryption=aes-256-xts/' \
+                 -e 's/,inlinecrypt//' \
+                 -e 's/formattable,wrappedkey/formattable/' "$f"
+        done
+        echo "== DEPOIS =="
+        grep -rnE 'wrappedkey|inlinecrypt|fileencryption' --include='*fstab*' --include='*.flags' . || true
+        echo "== BoardConfig: criptografia, kernel e dtbo =="
+        grep -nE 'CRYPTO|FBE|FSCRYPT|WRAPPED|KEYMASTER|PREBUILT_KERNEL|PREBUILT_DTBO|BOOT_HEADER' BoardConfig.mk || true        
     
     - name: Building OrangeFox
       run: |
