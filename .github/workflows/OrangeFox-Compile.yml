@@ -223,7 +223,9 @@ jobs:
         export OF_DONT_PATCH_ENCRYPTED_DEVICE=1
         # mesmo parametro usado no OrangeFox R11.3 que descriptografa
         export OF_FBE_METADATA_MOUNT_IGNORE=1
-        export FOX_VERSION="R12.1"
+        export FOX_MAINTAINER_PATCH_VERSION=1
+        echo "== onde a versao base esta definida =="
+        grep -rnE 'R12\.0|FOX_VERSION' bootable/recovery/orangefox.mk vendor/recovery 2>/dev/null | head -20
         echo "== release configs disponiveis =="
         ls build/release/release_configs 2>/dev/null
         ls build/make/release 2>/dev/null
