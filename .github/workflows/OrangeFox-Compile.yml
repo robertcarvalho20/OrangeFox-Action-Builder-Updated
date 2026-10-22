@@ -188,7 +188,28 @@ jobs:
           } >> "$RC"
         fi
         tail -n 12 "$RC"
-
+   
+    - name: Fix recovery pixel format (red/blue swap)
+      run: |
+        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}
+        echo "== ANTES =="
+        grep -rn 'TARGET_RECOVERY_PIXEL_FORMAT' --include='*.mk' . || echo "(nao definido na arvore)"
+        FILES=$(grep -rl 'TARGET_RECOVERY_PIXEL_FORMAT' --include='*.mk' . || true)
+        if [ -z "$FILES" ]; then
+          echo "" >> BoardConfig.mk
+          echo 'TARGET_RECOVERY_PIXEL_FORMAT := "BGRA_8888"' >> BoardConfig.mk
+        else
+          for f in $FILES; do
+            if grep -q 'TARGET_RECOVERY_PIXEL_FORMAT.*RGBX_8888' "$f"; then
+              sed -i -E 's/(TARGET_RECOVERY_PIXEL_FORMAT[[:space:]]*:?=[[:space:]]*"?)RGBX_8888/\1BGRA_8888/' "$f"
+            elif grep -q 'TARGET_RECOVERY_PIXEL_FORMAT.*BGRA_8888' "$f"; then
+              sed -i -E 's/(TARGET_RECOVERY_PIXEL_FORMAT[[:space:]]*:?=[[:space:]]*"?)BGRA_8888/\1RGBX_8888/' "$f"
+            fi
+          done
+        fi
+        echo "== DEPOIS =="
+        grep -rn 'TARGET_RECOVERY_PIXEL_FORMAT' --include='*.mk' . || true
+    
     - name: Building OrangeFox
       run: |
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
