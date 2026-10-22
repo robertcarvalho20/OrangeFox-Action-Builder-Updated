@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       MANIFEST_BRANCH:
-        description: 'OrangeFox Manifest Branch (use 12.1 para ter criptografia A16/A17)'
+        description: 'OrangeFox Manifest Branch (cryptography A16+)'
         required: true
         default: '12.1'
         type: choice
