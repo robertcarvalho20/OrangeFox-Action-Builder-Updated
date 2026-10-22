@@ -10,13 +10,13 @@ on:
   workflow_dispatch:
     inputs:
       MANIFEST_BRANCH:
-        description: 'OrangeFox Manifest Branch'
+        description: 'OrangeFox Manifest Branch (use 12.1 para ter criptografia A16/A17)'
         required: true
-        default: '14.1'
+        default: '12.1'
         type: choice
         options:
-        - 14.1
         - 12.1
+        - 14.1
         - 11.0
       DEVICE_TREE:
         description: 'OrangeFox Device Tree'
@@ -85,7 +85,7 @@ jobs:
         git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
         git clone https://gitlab.com/OrangeFox/sync.git -b master
         cd sync
-                ok=0
+        ok=0
         for i in 1 2 3 4 5; do
           echo "== Sync, tentativa $i de 5 =="
           if ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}; then
@@ -102,13 +102,13 @@ jobs:
         git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
         cd ${{ github.event.inputs.DEVICE_PATH }}
         echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
-  
+
     - name: Set keymaster version
       run: |
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/${{ github.event.inputs.DEVICE_PATH }}
         echo "" >> BoardConfig.mk
         grep -q 'OF_DEFAULT_KEYMASTER_VERSION' BoardConfig.mk || echo 'OF_DEFAULT_KEYMASTER_VERSION := 4.0' >> BoardConfig.mk
-        
+
     - name: Fix BoardConfig for Android 14
       if: github.event.inputs.MANIFEST_BRANCH == '14.1'
       run: |
@@ -133,8 +133,62 @@ jobs:
         echo "== DEPOIS =="
         grep -rnE 'wrappedkey|inlinecrypt|fileencryption' --include='*fstab*' --include='*.flags' . || true
         echo "== BoardConfig: criptografia, kernel e dtbo =="
-        grep -nE 'CRYPTO|FBE|FSCRYPT|WRAPPED|KEYMASTER|PREBUILT_KERNEL|PREBUILT_DTBO|BOOT_HEADER' BoardConfig.mk || true        
-    
+        grep -nE 'CRYPTO|FBE|FSCRYPT|WRAPPED|KEYMASTER|PREBUILT_KERNEL|PREBUILT_DTBO|BOOT_HEADER' BoardConfig.mk || true
+
+    # ------------------------------------------------------------------
+    # NOVO: aplica a correcao de criptografia (Android 16/17 e fstab adaptativo)
+    # Precisa da pasta crypto-fix/ na raiz do repositorio:
+    #   crypto-fix/Image.gz-dtb   (kernel com inline crypto)
+    #   crypto-fix/dtbo.img       (DTBO desse kernel)
+    #   crypto-fix/fstab_adapt.sh (ajusta o fstab conforme a ROM instalada)
+    # ------------------------------------------------------------------
+    - name: Apply crypto fix (kernel, DTBO, setpatch, adaptive fstab)
+      run: |
+        set -euo pipefail
+        FOX="${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}"
+        DP="${{ github.event.inputs.DEVICE_PATH }}"
+        DT="$FOX/$DP"
+        FIX="${GITHUB_WORKSPACE}/crypto-fix"
+
+        for f in Image.gz-dtb dtbo.img fstab_adapt.sh; do
+          [ -s "$FIX/$f" ] || { echo "ERRO: falta crypto-fix/$f no repositorio"; exit 1; }
+        done
+
+        echo "== 1) kernel e DTBO com suporte a inline crypto =="
+        mkdir -p "$DT/crypto-fix"
+        cp "$FIX/Image.gz-dtb" "$FIX/dtbo.img" "$DT/crypto-fix/"
+        {
+          echo ""
+          echo "# --- crypto fix: kernel e DTBO com suporte a inline crypto ---"
+          echo "TARGET_PREBUILT_KERNEL := $DP/crypto-fix/Image.gz-dtb"
+          echo "BOARD_PREBUILT_DTBOIMAGE := $DP/crypto-fix/dtbo.img"
+          echo "BOARD_INCLUDE_RECOVERY_DTBO := true"
+        } >> "$DT/BoardConfig.mk"
+        grep -nE 'PREBUILT_KERNEL|PREBUILT_DTBO|INCLUDE_RECOVERY_DTBO' "$DT/BoardConfig.mk"
+
+        echo "== 2) script adaptativo dentro do ramdisk =="
+        RC=$(find "$DT" -name init.recovery.qcom.rc | head -1)
+        [ -n "$RC" ] || { echo "ERRO: init.recovery.qcom.rc nao encontrado na device tree"; exit 1; }
+        ROOT=$(dirname "$RC")
+        echo "rc: $RC"
+        mkdir -p "$ROOT/system/bin"
+        cp "$FIX/fstab_adapt.sh" "$ROOT/system/bin/fstab_adapt.sh"
+        chmod 755 "$ROOT/system/bin/fstab_adapt.sh"
+
+        echo "== 3) setpatch + gancho do script no init =="
+        if ! grep -q 'fstab_adapt.sh' "$RC"; then
+          {
+            echo ""
+            echo "# --- crypto fix ---"
+            echo "on init"
+            echo "    setprop prepdecrypt.setpatch true"
+            echo ""
+            echo "on fs"
+            echo "    exec u:r:recovery:s0 root root -- /system/bin/sh /system/bin/fstab_adapt.sh"
+          } >> "$RC"
+        fi
+        tail -n 12 "$RC"
+
     - name: Building OrangeFox
       run: |
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
@@ -146,6 +200,8 @@ jobs:
         export ALLOW_MISSING_DEPENDENCIES=true
         export OF_DONT_PATCH_ON_FRESH_INSTALLATION=1
         export OF_DONT_PATCH_ENCRYPTED_DEVICE=1
+        # mesmo parametro usado no OrangeFox R11.3 que descriptografa
+        export OF_FBE_METADATA_MOUNT_IGNORE=1
         echo "== release configs disponiveis =="
         ls build/release/release_configs 2>/dev/null
         ls build/make/release 2>/dev/null
@@ -167,6 +223,73 @@ jobs:
         fi
         set -e
         make clean && mka adbd ${{ github.event.inputs.BUILD_TARGET }}image
+
+    # ------------------------------------------------------------------
+    # NOVO: confere se a imagem gerada realmente tem o kernel e o ramdisk
+    # corrigidos. Se algo nao entrou, o workflow falha ANTES de publicar.
+    # ------------------------------------------------------------------
+    - name: Verify crypto fix in the built image
+      run: |
+        OUT="${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}"
+        IMG=$(ls "$OUT"/OrangeFox*.img 2>/dev/null | head -1)
+        [ -n "$IMG" ] || { echo "ERRO: nenhuma OrangeFox*.img encontrada em $OUT"; exit 1; }
+        echo "Imagem: $IMG"
+        DTBO_SIZE=$(stat -c %s "${GITHUB_WORKSPACE}/crypto-fix/dtbo.img")
+        python3 - "$IMG" "$DTBO_SIZE" <<'PYEOF'
+        import sys, struct, gzip, zlib, re
+        img = open(sys.argv[1], 'rb').read()
+        exp_dtbo = int(sys.argv[2])
+        ks, ka, rs, ra, ss, sa, tags, page, hv, osv = struct.unpack('<IIIIIIIIII', img[8:48])
+        pg = lambda n: (n + page - 1) // page * page
+        kernel = img[page:page + ks]
+        ramdisk = img[page + pg(ks):page + pg(ks) + rs]
+        dsz, = struct.unpack('<I', img[1632:1636])
+        errors = []
+
+        i = kernel.find(b'\x1f\x8b\x08')
+        kd = zlib.decompressobj(31).decompress(kernel[i:]) if i >= 0 else kernel
+        m = re.search(rb'Linux version [0-9][^\x00\n]{0,90}', kd)
+        ver = m.group(0).decode(errors='replace') if m else 'desconhecido'
+        print('kernel :', ver)
+        if 'Floppy' not in ver:
+            errors.append('kernel NAO e o kernel com inline crypto (Floppy)')
+        print('dtbo   :', dsz, 'bytes (esperado', exp_dtbo, ')')
+        if dsz != exp_dtbo:
+            errors.append('DTBO diferente do esperado')
+
+        data = gzip.decompress(ramdisk)
+        files = {}
+        i = 0
+        while True:
+            f = [int(data[i + 6 + 8 * k:i + 14 + 8 * k], 16) for k in range(13)]
+            ns = f[11]
+            name = data[i + 110:i + 110 + ns - 1].decode()
+            off = (i + 110 + ns + 3) & ~3
+            files[name] = data[off:off + f[6]]
+            i = (off + f[6] + 3) & ~3
+            if name == 'TRAILER!!!':
+                break
+        if 'system/bin/fstab_adapt.sh' not in files:
+            errors.append('fstab_adapt.sh ausente do ramdisk')
+        rc = files.get('init.recovery.qcom.rc', b'').decode(errors='replace')
+        for need in ('fstab_adapt.sh', 'prepdecrypt.setpatch'):
+            if need not in rc:
+                errors.append('init.recovery.qcom.rc sem ' + need)
+        fstab = files.get('system/etc/recovery.fstab', b'').decode(errors='replace')
+        for line in fstab.splitlines():
+            t = line.split()
+            if len(t) > 4 and t[1] == '/data':
+                print('fstab /data:', t[4][:200])
+                if 'wrappedkey' in t[4]:
+                    errors.append('fstab ainda com wrappedkey no /data')
+        print('AVB footer:', 'presente' if img[-64:-60] == b'AVBf' else 'ausente')
+        if errors:
+            print('FALHOU:')
+            for e in errors:
+                print(' -', e)
+            sys.exit(1)
+        print('OK: kernel, DTBO, script adaptativo e setpatch estao na imagem')
+        PYEOF
 
     - name: Set Release Properties
       run: |
