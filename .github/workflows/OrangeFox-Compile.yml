@@ -43,6 +43,16 @@ on:
         - boot
         - recovery
         - vendorboot
+      APPLY_VISUAL:
+        description: 'Apply RC20 visual customizations (About card, changelog, Support)'
+        required: true
+        default: true
+        type: boolean
+      ABOUT_VERSION:
+        description: 'Version shown in About (optional, e.g. R12.1). Empty = keep original'
+        required: false
+        default: ''
+        type: string
 
 jobs:
   build:
@@ -314,6 +324,31 @@ jobs:
             sys.exit(1)
         print('OK: kernel, DTBO, script adaptativo e setpatch estao na imagem')
         PYEOF
+
+    # ------------------------------------------------------------------
+    # NOVO: personalizacao visual RC20 (depois da verificacao de criptografia).
+    # Precisa da pasta visual-fix/ na raiz do repositorio:
+    #   visual-fix/apply_visual.py  (aplica as mudancas na imagem e no zip)
+    #   visual-fix/author_rc20.png  (avatar do cartao RC20)
+    # Edita so o visual (About, Change Log, [Support]) e refaz o rodape AVB.
+    # Se o script falhar, a imagem original continua intacta e a build segue.
+    # ------------------------------------------------------------------
+    - name: Apply RC20 visual customizations (About, changelog, Support)
+      if: github.event.inputs.APPLY_VISUAL == 'true'
+      continue-on-error: true
+      run: |
+        set -euo pipefail
+        OUT="${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}"
+        IMG=$(ls "$OUT"/OrangeFox*.img | head -1)
+        ZIP=$(ls "$OUT"/OrangeFox*.zip 2>/dev/null | head -1 || true)
+        ARGS=(--image "$IMG")
+        if [ -n "$ZIP" ]; then ARGS+=(--zip "$ZIP"); fi
+        ABOUT_VERSION="${{ github.event.inputs.ABOUT_VERSION }}"
+        if [ -n "$ABOUT_VERSION" ]; then ARGS+=(--about-version "$ABOUT_VERSION"); fi
+        echo "Imagem: $IMG"
+        echo "Zip   : ${ZIP:-nenhum}"
+        python3 "${GITHUB_WORKSPACE}/visual-fix/apply_visual.py" "${ARGS[@]}"
+        sha256sum "$IMG" ${ZIP:+"$ZIP"}
 
     - name: Set Release Properties
       run: |
